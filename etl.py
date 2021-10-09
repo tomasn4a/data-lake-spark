@@ -2,24 +2,18 @@ import configparser
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import NewType, Union
+from typing import Union
 
 import findspark
+import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import udf, col
-from pyspark.sql.functions import (
-    year, month, dayofmonth, hour, weekofyear, date_format
-)
 
 from schemas import song_schema, log_schema
 
 findspark.init()
 
-# Define types
-PathLike = NewType('PathLike', Union[str, os.PathLike, Path])
 
-
-def read_config(config_path: PathLike) -> None:
+def read_config(config_path: Union[str, Path]) -> None:
     """Read AWS credentials from disk."""
 
     config = configparser.ConfigParser()
@@ -44,8 +38,8 @@ def create_spark_session() -> SparkSession:
 
 
 def process_song_data(spark: SparkSession,
-                      input_data: PathLike,
-                      output_data: PathLike) -> None:
+                      input_data: Union[str, Path],
+                      output_data: Union[str, Path]) -> None:
     """
     Read song data from S3 and write songs and artist tables as parquet.
 
@@ -95,36 +89,59 @@ def process_song_data(spark: SparkSession,
         .parquet(Path(output_data))
 
 
-def process_log_data():
-
+def process_log_data(spark: SparkSession,
+                     input_data: Union[str, Path],
+                     output_data: Union[str, Path]) -> None:
     # Get filepath to log data file
-    log_data =
+    log_data = Path(input_data) / 'log_data'
 
     # Read log data files
-    df =
+    df = spark \
+        .read \
+        .option("recursiveFileLookup", "true") \
+        .json(log_data, schema=log_schema)
 
     # Filter by actions for song plays
-    df = df.selec
+    df = df.filter(df.page == 'NextSong')
 
-    # extract columns for users table
-    artists_table =
+    # Extract columns for users table
+    users_fields_exprs = [
+        'userId AS user_id',
+        'firstName AS first_name',
+        'lastName AS last_name',
+        'gender',
+        'level'
+    ]
+    users_table = df.selectExpr(*users_fields_exprs).limit(5).toPandas()
 
-    # write users table to parquet files
-    artists_table
+    # Write users table to parquet files
+    users_table.write \
+        .mode('overwrite') \
+        .parquet(Path(output_data))
 
-    # create timestamp column from original timestamp column
-    get_timestamp = udf()
-    df =
+    # Create timestamp from original timestamp (in ms) column
+    df = df.withColumn('ts_timestamp', F.to_timestamp(df.ts/1000))
 
-    # create datetime column from original timestamp column
-    get_datetime = udf()
-    df =
+    # Create date column from new timestamp
+    df = df.withColumn('ts_date', F.to_date(df.ts_timestamp))
 
     # extract columns to create time table
-    time_table =
+    time_exprs = [
+        'ts_timestamp AS start_time',
+        'HOUR(ts_timestamp) AS hour',
+        'DAY(ts_date) AS day',
+        'WEEKOFYEAR(ts_date) AS week',
+        'MONTH(ts_date) AS month',
+        'YEAR(ts_date) AS year',
+        'WEEKDAY(ts_date) AS weekday'
+    ]
+    time_table = df.selectExpr(*time_exprs).limit(5).toPandas()
 
-    # write time table to parquet files partitioned by year and month
-    time_table
+    # Write time table to parquet files partitioned by year and month
+    time_table.write \
+        .partitionBy('year', 'month') \
+        .mode('overwrite') \
+        .parquet(Path(output_data))
 
     # read in song data to use for songplays table
     song_df =
