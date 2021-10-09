@@ -55,8 +55,10 @@ def process_song_data(spark: SparkSession,
     songs_fields = ['song_id', 'title', 'artist_id', 'year', 'duration']
     songs_table = df.select(songs_fields)
 
-    # Write songs table to parquet files partitioned by year and artist
+    # Drop duplicates and write songs table to parquet files
+    # partitioned by year and artist
     songs_table.write \
+        .dropDuplicates(subset=['song_id']) \
         .partitionBy('year', 'artist_id') \
         .mode('overwrite') \
         .parquet(Path(output_data))
@@ -71,8 +73,10 @@ def process_song_data(spark: SparkSession,
     ]
     artists_table = df.selectExpr(*artists_exprs)
 
-    # Write artists table to parquet files
-    artists_table.write \
+    # Drop duplicates and write artists table to parquet files
+    artists_table \
+        .dropDuplicates(subset=['artist_id']) \
+        .write \
         .mode('overwrite') \
         .parquet(Path(output_data))
 
@@ -102,10 +106,12 @@ def process_log_data(spark: SparkSession,
         'gender',
         'level'
     ]
-    users_table = df.selectExpr(*users_exprs).limit(5).toPandas()
+    users_table = df.selectExpr(*users_exprs)
 
-    # Write users table to parquet files
-    users_table.write \
+    # Drop duplicates and write users table to parquet files
+    users_table \
+        .drop_duplicates(subset=['user_id']) \
+        .write \
         .mode('overwrite') \
         .parquet(Path(output_data))
 
@@ -122,7 +128,7 @@ def process_log_data(spark: SparkSession,
         'YEAR(ts_timestamp) AS year',
         'WEEKDAY(ts_timestamp) AS weekday'
     ]
-    time_table = df.selectExpr(*time_exprs).limit(5).toPandas()
+    time_table = df.selectExpr(*time_exprs)
 
     # Write time table to parquet files partitioned by year and month
     time_table.write \
